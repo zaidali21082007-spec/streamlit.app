@@ -46,7 +46,7 @@ def generate_visualization(dataframe: pd.DataFrame, output_img: str = "analysis_
     category_column_name = _resolve_column(dataframe, "category")
     sales_column_name = _resolve_column(dataframe, "sales")
 
-    if category_column_name is None or sales_column_name is None:
+    if not category_column_name or not sales_column_name:
         raise ValueError(
             "[generate_visualization] Could not locate both a 'Category' and 'Sales' "
             "column in the provided dataset."
@@ -79,8 +79,13 @@ def generate_visualization(dataframe: pd.DataFrame, output_img: str = "analysis_
     axis.set_ylabel(f"Total {sales_column_name}", fontsize=12, fontweight="semibold", labelpad=12)
     axis.tick_params(axis="x", rotation=30)
 
-    for bar_container in bar_plot.containers:
-        bar_plot.bar_label(bar_container, fmt="%.0f", padding=3, fontsize=9)
+    # Robust handling for bar labels when utilizing hue mappings
+    if bar_plot.containers:
+        for bar_container in bar_plot.containers:
+            try:
+                bar_plot.bar_label(bar_container, fmt="%.0f", padding=3, fontsize=9)
+            except Exception:
+                pass  # Fallback gracefully if a container index is unmapped or empty
 
     plt.setp(axis.get_xticklabels(), ha="right", rotation_mode="anchor")
     figure.tight_layout()
@@ -104,27 +109,7 @@ def generate_ai_explanation(stats: dict, chart_context: str) -> str:
     summary of the dataset findings using the Groq LLM API
     (model: llama3-8b-8192).
 
-    Authentication is read from the GROQ_API_KEY environment variable
-    (falling back to a GROQ_API_KEY value in a local .env file if
-    python-dotenv is available). The key is intentionally NOT hardcoded
-    in source code — set it in your shell before running:
-
-        export GROQ_API_KEY="your-key-here"        # macOS/Linux
-        setx GROQ_API_KEY "your-key-here"           # Windows
-
-    Parameters
-    ----------
-    stats : dict
-        The nested statistics dictionary produced by analyze_dataset().
-    chart_context : str
-        A short description of the chart that was generated (e.g. its
-        file path or title), used to ground the AI's explanation.
-
-    Returns
-    -------
-    str
-        A three-sentence executive summary, or a graceful fallback
-        message if the Groq API is unavailable or misconfigured.
+    Authentication is read from the GROQ_API_KEY environment variable.
     """
     groq_api_key = os.environ.get("GROQ_API_KEY")
 
@@ -137,7 +122,7 @@ def generate_ai_explanation(stats: dict, chart_context: str) -> str:
 
     try:
         from groq import Groq
-    except ImportError as import_error:
+    except ImportError:
         return (
             "[generate_ai_explanation] The 'groq' package is not installed. "
             "Run `pip install groq` and re-run the pipeline."
@@ -164,31 +149,19 @@ def generate_ai_explanation(stats: dict, chart_context: str) -> str:
         ai_generated_summary = chat_completion_response.choices[0].message.content.strip()
         return ai_generated_summary
 
-    except Exception as groq_error:  # Broad catch: network, auth, rate-limit, etc.
+    except Exception as groq_error:
         return (
             "[generate_ai_explanation] Could not generate AI summary due to an error "
             f"communicating with the Groq API: {groq_error}"
         )
 
 
-def _resolve_column(dataframe: pd.DataFrame, keyword: str):
+def _resolve_column(dataframe: pd.DataFrame, keyword: str) -> str:
     """
     Internal helper: locate a column whose name contains the given
     keyword (case-insensitive).
-
-    Parameters
-    ----------
-    dataframe : pandas.DataFrame
-        The dataset whose columns will be searched.
-    keyword : str
-        The keyword to search for within column names.
-
-    Returns
-    -------
-    str or None
-        The matching column name, or None if not found.
     """
     for column_name in dataframe.columns:
-        if keyword.lower() in column_name.lower():
-            return column_name
-    return None
+        if keyword.lower() in str(column_name).lower():
+            return str(column_name)
+    return ""
